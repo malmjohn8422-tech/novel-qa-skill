@@ -47,17 +47,7 @@ description: Chunk a Chinese novel into 10000-15000 character blocks and answer 
 
 ### 运行前置:Write 权限
 
-入库流程需要切块、生成摘要、聚合文档,**全程依赖文件写入**。spawn 出来的子 agent 继承当前 session 的 permission 配置,所以必须先在 settings 里放开 Write,否则子 agent 调 `Write` 会被拒。
-
-入库前,在你的 `~/.claude/settings.local.json` 的 `permissions.allow` 数组里加上:
-
-```json
-"Write(C:\\Users\\Malmj\\.claude\\skills\\**)",
-"Write(C:\\path\\to\\your\\library\\**)",
-"Edit(C:\\Users\\Malmj\\.claude\\skills\\**)"
-```
-
-(把 `C:\\path\\to\\your\\library` 改成你跑 skill 时的工作目录或 `library/` 所在路径。Windows 路径分隔符在 JSON 里要 `\\` 双写。)
+入库全程依赖文件写入。先确认**当前工作目录**的 `.claude/settings.local.json` 放开了 `Read/Write/Edit`；子 agent 继承当前 Claude Code session 的有效权限,用户级配置可能被项目级配置限制。个人使用可用 `Read(**)` / `Write(**)` / `Edit(**)` 的项目级配置,详细示例见 [references/permissions.md](references/permissions.md)。
 
 **自检**:如果第一批 worker 报 `FAILED reason=Write permission denied`,说明上述配置没生效或被中转拦截。降级方案:
 
@@ -204,7 +194,7 @@ python <skill_dir>/scripts/aggregate.py prepare-cache {slug}
 python <skill_dir>/scripts/aggregate.py profile-tasks {slug}
 ```
 
-返回主要角色任务数组。每个任务包含 `name`、`appears_in`、`chunks_dir`、`output_path`、`template_path`。
+默认返回出场最多的前 10 个主要角色任务,减少 Stage 2 worker 调用。需要更多时用 `--limit N`;需要全部主要角色时用 `--all`。每个任务包含 `name`、`appears_in`、`chunks_dir`、`output_path`、`template_path`。
 
 并行 spawn worker,每批 5-8 个。每个 worker 的 prompt 使用短格式:
 
@@ -308,17 +298,9 @@ python <skill_dir>/scripts/aggregate.py status {slug}
 
 ---
 
-## 设计决策的"为什么"
+## 设计决策
 
-- **为什么切块用脚本不用模型**:切块是确定性操作,必须 byte-exact 保留原文,不能丢字。模型不可控且贵。
-- **为什么块大小 10000-15000**:上限是为了让摘要模型能读细;下限是为了避免每个块的摘要信息密度过低。
-- **为什么按章而非按字硬切**:章节是作者设定的最小完整单元,不会切在场景中段。只有超长章才章内拆。
-- **为什么重切块默认不覆盖**:重切会使旧 `summary.json`、角色档案和高级文档失效。必须显式 `--force` 才允许删除旧库。
-- **为什么每个回答都要带块号**:用户可以一键验证,而不是把答案当黑盒接受。
-- **为什么主线程只传路径**:长篇小说正文和全量摘要会迅速耗尽 Claude Code 上下文。让 worker 自行读写文件,main thread 只保存任务路径和 OK/FAILED 状态,可以显著减少 auto-compact。
-- **为什么问答先跑检索脚本**:脚本只返回块号和短 snippet,比让 main thread 直接读多个 summary/全文更省 token,也能减少章节和角色定位错误。
-- **为什么 keywords/aliases 可选**:保持旧库兼容。新库检索更准,旧库不需要重跑也能问答。
-- **为什么长篇用分段聚合**:超长小说的全量摘要缓存也会变大。分段摘要把高级文档输入压缩到稳定规模。
+设计原因见 [references/design_notes.md](references/design_notes.md)。主原则:确定性工作交给脚本,大文本通过文件系统传递,main thread 只保留任务路径、状态和必要证据。
 
 ---
 
@@ -326,6 +308,8 @@ python <skill_dir>/scripts/aggregate.py status {slug}
 
 | 文件 | 何时加载 |
 |---|---|
+| [references/permissions.md](references/permissions.md) | 入库前 Write 权限配置或 worker 写入被拒时 |
+| [references/design_notes.md](references/design_notes.md) | 需要理解默认块大小、路径传递、分段聚合等设计取舍时 |
 | [references/chunking_rules.md](references/chunking_rules.md) | Stage 0 切块时查算法细节或异常处理 |
 | [references/qa_routing.md](references/qa_routing.md) | 问答时查决策树、多步检索、降级处理 |
 | [references/output_format.md](references/output_format.md) | 回答时查输出规范、块号引用、答案模板 |

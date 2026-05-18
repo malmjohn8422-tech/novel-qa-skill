@@ -25,7 +25,7 @@ storyline.md。
     prepare-arcs <slug>      生成 _cache/arcs/arc_NNN.input.md,供长篇分段摘要
     arc-tasks <slug>         输出分段摘要任务(JSON)
     prepare-arc-cache <slug> 合并 arc_NNN.summary.md 为 _cache/all_arc_summaries.md
-    profile-tasks <slug>     输出主要角色档案任务(JSON,worker 直接读 summary 并写 md)
+    profile-tasks <slug>     输出主要角色档案任务(JSON,默认 top 10; worker 直接读 summary 并写 md)
     doc-tasks <slug>         输出概要/世界观/故事线任务(JSON,worker 直接读 cache/arc cache 并写 md)
     status <slug>            显示 Stage 2 进度
 """
@@ -567,8 +567,13 @@ def cmd_profile_tasks(args: argparse.Namespace) -> int:
     role_dir = base / "角色"
     template = (skill_dir() / "agents" / "character-profile.md").resolve()
 
+    major_items = sorted(major.items(), key=lambda kv: (-len(kv[1]), kv[0]))
+    if not args.all:
+        limit = max(args.limit, 0)
+        major_items = major_items[:limit]
+
     tasks = []
-    for name, appears_in in sorted(major.items(), key=lambda kv: -len(kv[1])):
+    for name, appears_in in major_items:
         tasks.append(
             {
                 "slug": args.slug,
@@ -693,6 +698,8 @@ def main(argv: list[str] | None = None) -> int:
     ppt = sub.add_parser("profile-tasks")
     ppt.add_argument("slug")
     ppt.add_argument("--library", default=None, help="library 根目录(默认 ./library)")
+    ppt.add_argument("--limit", type=int, default=10, help="最多输出 N 个主要角色任务(默认 10)")
+    ppt.add_argument("--all", action="store_true", help="输出全部主要角色任务,忽略 --limit")
 
     pdt = sub.add_parser("doc-tasks")
     pdt.add_argument("slug")
